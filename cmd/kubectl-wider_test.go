@@ -1,12 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
 )
 
 func TestFormatAge(t *testing.T) {
@@ -401,13 +404,18 @@ func TestOptionsValidate(t *testing.T) {
 			wantErr:      false,
 		},
 		{
-			name:         "invalid format",
+			name:         "valid json",
 			outputFormat: "json",
-			wantErr:      true,
+			wantErr:      false,
 		},
 		{
-			name:         "invalid format yaml",
+			name:         "valid yaml",
 			outputFormat: "yaml",
+			wantErr:      false,
+		},
+		{
+			name:         "invalid format",
+			outputFormat: "table",
 			wantErr:      true,
 		},
 	}
@@ -425,5 +433,63 @@ func TestOptionsValidate(t *testing.T) {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+func TestOptionsComplete_UsesContextOverride(t *testing.T) {
+	kubeconfig := `
+apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://west.example.com
+    insecure-skip-tls-verify: true
+  name: west
+- cluster:
+    server: https://east.example.com
+    insecure-skip-tls-verify: true
+  name: east
+contexts:
+- context:
+    cluster: west
+    namespace: west-ns
+    user: default
+  name: west
+- context:
+    cluster: east
+    namespace: east-ns
+    user: default
+  name: east
+current-context: west
+users:
+- name: default
+  user:
+    token: fake
+`
+
+	configDir := t.TempDir()
+	configPath := filepath.Join(configDir, "kubeconfig")
+	if err := os.WriteFile(configPath, []byte(kubeconfig), 0o644); err != nil {
+		t.Fatalf("failed to write kubeconfig: %v", err)
+	}
+
+	opts := &Options{
+		ConfigFlags: &clientcmd.ClientConfigLoadingRules{
+			ExplicitPath: configPath,
+		},
+	}
+
+	t.Setenv("KUBECTL_PLUGINS_GLOBAL_FLAG_CONTEXT", "east")
+
+	if err := opts.Complete(); err != nil {
+		t.Fatalf("Complete() returned error: %v", err)
+	}
+
+	if opts.Namespace != "east-ns" {
+		t.Fatalf("expected namespace from east context, got %q", opts.Namespace)
+	}
+
+	if opts.Context != "east" {
+		t.Fatalf("expected context to be set to east, got %q", opts.Context)
 	}
 }

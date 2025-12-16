@@ -5,6 +5,7 @@ import (
 	"fmt"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/clientcmd"
+	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -24,12 +25,24 @@ type Options struct {
 	OutputFormat  string
 	LabelSelector string
 	AllNamespaces bool
+	Context       string
 	Clientset     *kubernetes.Clientset
 	ConfigFlags   *clientcmd.ClientConfigLoadingRules
 }
 
 func (o *Options) Complete() error {
 	configOverrides := &clientcmd.ConfigOverrides{}
+
+	if o.Context == "" {
+		if envContext := os.Getenv("KUBECTL_PLUGINS_GLOBAL_FLAG_CONTEXT"); envContext != "" {
+			o.Context = envContext
+		}
+	}
+
+	if o.Context != "" {
+		configOverrides.CurrentContext = o.Context
+	}
+
 	kubeConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(o.ConfigFlags, configOverrides)
 
 	config, err := kubeConfig.ClientConfig()
@@ -110,6 +123,7 @@ Examples:
 	cmd.Flags().StringVarP(&opts.OutputFormat, "output", "o", "", "Output format. One of: (json, yaml, custom-columns) (e.g., custom-columns=\"NAME:.pod.metadata.name,NODE:.node.metadata.name,OS:.node.metadata.labels.kubernetes\\.io/os\")")
 	cmd.Flags().BoolVarP(&opts.AllNamespaces, "all-namespaces", "A", false, "Query all namespaces")
 	cmd.Flags().StringVarP(&opts.LabelSelector, "selector", "l", "", "Selector (label query) to filter on, supports '=', '==', and '!='.(e.g. -l key1=value1,key2=value2)")
+	cmd.Flags().StringVar(&opts.Context, "context", "", "Kubernetes context to use (defaults to current context)")
 
 	return cmd
 }
